@@ -44,8 +44,50 @@ then fails with an explicit message until you do one of the following:
    ([docs](https://code.claude.com/docs/en/claude-code/claude-code-on-the-web)), then
    start a fresh session. The hook downloads the weights once and the cached image
    keeps them, so later sessions work even if the host is blocked again.
-2. **Vendor the weights.** Copy a CTranslate2 model directory (one containing
-   `model.bin` and `config.json`) into the image and set `WHISPER_MODEL_DIR` to it.
+2. **Vendor the weights** into the repo — see below. This works with
+   `huggingface.co` permanently blocked, because the repo arrives over git.
+
+Note that a *running* container keeps the network policy it booted with, so
+allowing the host does nothing for a session that is already open. Start a new one.
+
+## Vendoring weights
+
+The weights are fetched once on your own machine and committed, after which every
+session gets them from the clone. The hook detects
+`models/faster-whisper-<size>/` automatically and exports `WHISPER_MODEL_DIR`.
+
+`model.bin` is larger than GitHub's 100 MB per-file limit for every size except
+`tiny`, so `.gitattributes` tracks it with Git LFS.
+
+```bash
+# On your machine, in a clone of this repo:
+pip install huggingface_hub
+git lfs install
+
+python3 - <<'PY'
+from huggingface_hub import snapshot_download
+snapshot_download("Systran/faster-whisper-small", local_dir="models/faster-whisper-small")
+PY
+
+git add .gitattributes models/faster-whisper-small
+git commit -m "Vendor faster-whisper-small weights"
+git push
+```
+
+Pick the size to match the clone cost you are willing to pay every session:
+
+| Size | `model.bin` | Needs LFS |
+| --- | --- | --- |
+| `tiny` | ~75 MB | no |
+| `base` | ~145 MB | yes |
+| `small` | ~480 MB | yes |
+
+Then set `WHISPER_MODEL` to that size (the hook defaults to `small`).
+
+If a session ever reports weights that will not load, the usual cause is a clone
+without `git lfs pull`, which leaves pointer stubs in place of the real files.
+`tools/whisper_setup.py` detects that case and reports it rather than failing
+inside CTranslate2.
 
 Check the current policy from inside a session with:
 

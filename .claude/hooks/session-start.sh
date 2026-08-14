@@ -35,14 +35,28 @@ if [ -n "${CLAUDE_ENV_FILE:-}" ]; then
   } >> "$CLAUDE_ENV_FILE"
 fi
 
+# Weights committed to the repo win: they arrive over the git transport, which
+# stays available even when huggingface.co is blocked. Fetch LFS content first,
+# since a plain clone leaves pointer stubs in place of the real files.
+VENDORED="$PROJECT_DIR/models/faster-whisper-${WHISPER_MODEL}"
+if [ -d "$VENDORED" ]; then
+  if [ -f "$PROJECT_DIR/.gitattributes" ] && command -v git-lfs >/dev/null 2>&1; then
+    git -C "$PROJECT_DIR" lfs pull >/dev/null 2>&1 || true
+  fi
+  if [ -n "${CLAUDE_ENV_FILE:-}" ]; then
+    echo "export WHISPER_MODEL_DIR=\"$VENDORED\"" >> "$CLAUDE_ENV_FILE"
+  fi
+  export WHISPER_MODEL_DIR="$VENDORED"
+fi
+
 # Best-effort: weights come from huggingface.co, which some network policies
 # block. A miss must not fail the session -- transcribe.py reports it later
 # with remediation steps.
-if PYTHONPATH="$PROJECT_DIR" python3 -c "
+if RESOLVED=$(PYTHONPATH="$PROJECT_DIR" python3 -c "
 from tools.whisper_setup import ensure_model
 print(ensure_model('${WHISPER_MODEL}'))
-" 2>/dev/null; then
-  echo "whisper: '${WHISPER_MODEL}' weights cached in ${WHISPER_CACHE}"
+" 2>/dev/null); then
+  echo "whisper: '${WHISPER_MODEL}' weights ready at ${RESOLVED}"
 else
   echo "whisper: faster-whisper installed, but '${WHISPER_MODEL}' weights could not be" \
        "fetched (huggingface.co unreachable under this environment's network policy)." \
